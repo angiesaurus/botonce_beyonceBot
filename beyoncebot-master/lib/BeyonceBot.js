@@ -1,0 +1,199 @@
+'use strict';
+
+var util = require('util');
+var path = require('path');
+var fs = require('fs');
+var SQLite = require('sqlite3').verbose();
+var Bot = require('slackbots');
+
+/**
+ * Constructor function. It accepts a settings object which should contain the following keys:
+ *      token : the API token of the bot (mandatory)
+ *      name : the name of the bot (will default to "BeyonceBot")
+ *      dbPath : the path to access the database (will default to "data/BeyonceBot.db")
+ *
+ * @param {object} settings
+ * @constructor
+ *
+ * @author Luciano Mammino <lucianomammino@gmail.com>
+ */
+var BeyonceBot = function Constructor(settings) {
+    this.settings = settings;
+    this.settings.name = this.settings.name || 'BeyonceBot';
+    this.dbPath = settings.dbPath || path.resolve(__dirname, '..', 'data', 'BeyonceBot.db');
+
+    this.user = null;
+    this.db = null;
+};
+
+// inherits methods and properties from the Bot constructor
+util.inherits(BeyonceBot, Bot);
+
+/**
+ * Run the bot
+ * @public
+ */
+BeyonceBot.prototype.run = function () {
+    BeyonceBot.super_.call(this, this.settings);
+
+    this.on('start', this._onStart);
+    this.on('message', this._onMessage);
+};
+
+/**
+ * On Start callback, called when the bot connects to the Slack server and access the channel
+ * @private
+ */
+BeyonceBot.prototype._onStart = function () {
+    this._loadBotUser();
+    this._connectDb();
+    this._firstRunCheck();
+};
+
+/**
+ * On message callback, called when a message (of any type) is detected with the real time messaging API
+ * @param {object} message
+ * @private
+ */
+BeyonceBot.prototype._onMessage = function (message) {
+    if (this._isChatMessage(message) &&
+        this._isChannelConversation(message) &&
+        !this._isFromBeyonceBot(message) &&
+        this._isMentioningBeyonce(message)
+    ) {
+        this._replyWithRandomQuote(message);
+    }
+};
+
+/**
+ * Replyes to a message with a random Quote
+ * @param {object} originalMessage
+ * @private
+ */
+BeyonceBot.prototype._replyWithRandomQuote = function (originalMessage) {
+    var self = this;
+    self.db.get('SELECT id, quote FROM quotes ORDER BY used ASC, RANDOM() LIMIT 1', function (err, record) {
+        if (err) {
+            return console.error('DATABASE ERROR:', err);
+        }
+
+        var channel = self._getChannelById(originalMessage.channel);
+        self.postMessageToChannel(channel.name, record.quote, {as_user: true});
+        self.db.run('UPDATE quotes SET used = used + 1 WHERE id = ?', record.id);
+    });
+};
+
+/**
+ * Loads the user object representing the bot
+ * @private
+ */
+BeyonceBot.prototype._loadBotUser = function () {
+    var self = this;
+    this.user = this.users.filter(function (user) {
+        return user.name === self.name;
+    })[0];
+};
+
+/**
+ * Open connection to the db
+ * @private
+ */
+BeyonceBot.prototype._connectDb = function () {
+    if (!fs.existsSync(this.dbPath)) {
+        console.error('Database path ' + '"' + this.dbPath + '" does not exists or it\'s not readable.');
+        process.exit(1);
+    }
+
+    this.db = new SQLite.Database(this.dbPath);
+};
+
+/**
+ * Check if the first time the bot is run. It's used to send a welcome message into the channel
+ * @private
+ */
+BeyonceBot.prototype._firstRunCheck = function () {
+    var self = this;
+    self.db.get('SELECT val FROM info WHERE name = "lastrun" LIMIT 1', function (err, record) {
+        if (err) {
+            return console.error('DATABASE ERROR:', err);
+        }
+
+        var currentTime = (new Date()).toJSON();
+
+        // this is a first run
+        if (!record) {
+            self._welcomeMessage();
+            return self.db.run('INSERT INTO info(name, val) VALUES("lastrun", ?)', currentTime);
+        }
+
+        // updates with new last running time
+        self.db.run('UPDATE info SET val = ? WHERE name = "lastrun"', currentTime);
+    });
+};
+
+/**
+ * Sends a welcome message in the channel
+ * @private
+ */
+BeyonceBot.prototype._welcomeMessage = function () {
+    this.postMessageToChannel(this.channels[0].name, "Okay, ladies now let's get in formation" +
+        "\n I'm a human being and I fall in love and sometimes I don't have control of every situation. Just say `Beyonce` or `' + this.name + '` to invoke me!",
+        {as_user: true});
+};
+
+/**
+ * Util function to check if a given real time message object represents a chat message
+ * @param {object} message
+ * @returns {boolean}
+ * @private
+ */
+BeyonceBot.prototype._isChatMessage = function (message) {
+    return message.type === 'message' && Boolean(message.text);
+};
+
+/**
+ * Util function to check if a given real time message object is directed to a channel
+ * @param {object} message
+ * @returns {boolean}
+ * @private
+ */
+BeyonceBot.prototype._isChannelConversation = function (message) {
+    return typeof message.channel === 'string' &&
+        message.channel[0] === 'C'
+        ;
+};
+
+/**
+ * Util function to check if a given real time message is mentioning Beyonce or the BeyonceBot
+ * @param {object} message
+ * @returns {boolean}
+ * @private
+ */
+BeyonceBot.prototype._isMentioningBeyonce = function (message) {
+    return message.text.toLowerCase().indexOf('beyonce') > -1 ||
+        message.text.toLowerCase().indexOf(this.name) > -1;
+};
+
+/**
+ * Util function to check if a given real time message has ben sent by the BeyonceBot
+ * @param {object} message
+ * @returns {boolean}
+ * @private
+ */
+BeyonceBot.prototype._isFromBeyonceBot = function (message) {
+    return message.user === this.user.id;
+};
+
+/**
+ * Util function to get the name of a channel given its id
+ * @param {string} channelId
+ * @returns {Object}
+ * @private
+ */
+BeyonceBot.prototype._getChannelById = function (channelId) {
+    return this.channels.filter(function (item) {
+        return item.id === channelId;
+    })[0];
+};
+
+module.exports = BeyonceBot;
