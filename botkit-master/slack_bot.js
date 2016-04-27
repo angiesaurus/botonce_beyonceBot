@@ -47,6 +47,10 @@ This bot demonstrates many of the core features of Botkit:
 
   The bot will tell you your nickname, if it knows one for you.
 
+  Say: "motivate me"
+
+  The bot will tell you a Beyonce quote.
+
   Say: "shutdown"
 
   The bot will ask if you are sure, and then shut itself down.
