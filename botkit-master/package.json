@@ -31,6 +31,11 @@
   "bugs": {
     "url": "https://github.com/howdyai/botkit/issues"
   },
+
+  "engines": {
+    "node": "4.3.1"
+  },
+
   "homepage": "http://howdy.ai/botkit",
   "keywords": [
     "bots",
